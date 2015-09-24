@@ -20,32 +20,45 @@ static double nano_to_ms(int64_t ns)
 static void print_stats(
 	struct task* t,
 	struct st_event_record *release,
-	struct st_event_record *completion)
+	struct st_event_record *completion,
+	struct st_event_record *switchto,
+	struct st_event_record *switchaway)
 {
 	int64_t lateness;
 	u64 response;
+	u64 cet;
 
 	lateness  = completion->data.completion.when;
 	lateness -= release->data.release.deadline;
 	response  = completion->data.completion.when;
 	response -= release->data.release.release;
 
+	if (switchto != NULL && switchaway != NULL) {
+		cet       = switchaway->data.switch_away.when;
+		cet      -= switchto->data.switch_to.when;
+	}
+	else {
+		cet = 0;
+	}
+
 	if (want_ms)
-		printf(" %5u, %5u, %10.2f, %10.2f, %8d, %10.2f, %10.2f,%7d\n",
+		printf(" %5u, %5u, %10.2f, %10.2f, %10.2f, %8d, %10.2f, %10.2f,%7d\n",
 		       release->hdr.pid,
 		       release->hdr.job,
 		       nano_to_ms(per(t)),
 		       nano_to_ms(response),
+                       nano_to_ms(cet),
 		       lateness > 0,
 		       nano_to_ms(lateness),
 		       lateness > 0 ? nano_to_ms(lateness) : 0,
 		       completion->data.completion.forced);
 	else
-		printf(" %5u, %5u, %10llu, %10llu, %8d, %10lld, %10lld,%7d\n",
+		printf(" %5u, %5u, %10llu, %10llu, %10llu, %8d, %10lld, %10lld,%7d\n",
 		       release->hdr.pid,
 		       release->hdr.job,
 		       (unsigned long long) per(t),
 		       (unsigned long long) response,
+                       (unsigned long long) cet,
 		       lateness > 0,
 		       (long long) lateness,
 		       lateness > 0 ? (long long) lateness : 0,
@@ -89,6 +102,24 @@ static void usage(const char *str)
 	exit(1);
 }
 
+static struct st_event_record *find_event_record(struct evlink *e, u32 job, st_event_record_type_t evtype)
+{
+	struct evlink *pos = e;
+	int count = 0;
+
+	while (pos && count < MAX_COMPLETIONS_TO_CHECK) {
+		find(pos, evtype);
+		if (pos->rec->hdr.job == job) {
+			return pos->rec;
+		} else {
+			pos = pos->next;
+			count ++;
+		}
+	}
+
+	return NULL;
+}
+
 #define OPTSTR "rmp:n:t:"
 
 int main(int argc, char** argv)
@@ -99,6 +130,9 @@ int main(int argc, char** argv)
 	struct task *t;
 	struct evlink *e, *pos;
 	struct st_event_record *rec;
+	struct st_event_record *to_rec;
+	struct st_event_record *away_rec;
+	struct st_event_record *comp_rec;
 
 	int wait_for_release = 0;
 	u64 sys_release = 0;
@@ -162,11 +196,12 @@ int main(int argc, char** argv)
 	}
 
 	/* print header */
-	printf("#%5s, %5s, %10s, %10s, %8s, %10s, %10s, %7s\n",
+	printf("#%5s, %5s, %10s, %10s, %10s, %8s, %10s, %10s, %7s\n",
 	       "Task",
 	       "Job",
 	       "Period",
 	       "Response",
+               "Execution",
 	       "DL Miss?",
 	       "Lateness",
 	       "Tardiness",
@@ -189,17 +224,12 @@ int main(int argc, char** argv)
 			     rec->data.release.release >= sys_release)) {
 				pos  = e;
 				count = 0;
-				while (pos && count < MAX_COMPLETIONS_TO_CHECK) {
-					find(pos, ST_COMPLETION);
-					if (pos->rec->hdr.job == rec->hdr.job) {
-						print_stats(t, rec, pos->rec);
-						break;
-					} else {
-						pos = pos->next;
-						count++;
-					}
-				}
 
+				to_rec = find_event_record(pos, rec->hdr.job, ST_SWITCH_TO);
+				away_rec = find_event_record(pos, rec->hdr.job, ST_SWITCH_AWAY);
+				comp_rec = find_event_record(pos, rec->hdr.job, ST_COMPLETION);
+
+				print_stats(t, rec, comp_rec, to_rec, away_rec);
 			}
 		}
 	}
