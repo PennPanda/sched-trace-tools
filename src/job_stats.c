@@ -28,10 +28,16 @@ static void print_stats(
 	u64 response;
 	u64 cet;
 
-	lateness  = completion->data.completion.when;
-	lateness -= release->data.release.deadline;
-	response  = completion->data.completion.when;
-	response -= release->data.release.release;
+	if (release == NULL || completion == NULL) {
+		lateness = -1;
+		response = 0;
+	}
+	else {
+		lateness  = completion->data.completion.when;
+		lateness -= release->data.release.deadline;
+		response  = completion->data.completion.when;
+		response -= release->data.release.release;
+	}
 
 	if (switchto != NULL && switchaway != NULL) {
 		cet       = switchaway->data.switch_away.when;
@@ -48,10 +54,10 @@ static void print_stats(
 		       nano_to_ms(per(t)),
 		       nano_to_ms(response),
                        nano_to_ms(cet),
-		       lateness > 0,
+		       lateness == -1 || lateness > 0,
 		       nano_to_ms(lateness),
 		       lateness > 0 ? nano_to_ms(lateness) : 0,
-		       completion->data.completion.forced);
+		       (completion == NULL ? 0 : completion->data.completion.forced));
 	else
 		printf(" %5u, %5u, %10llu, %10llu, %10llu, %8d, %10lld, %10lld,%7d\n",
 		       release->hdr.pid,
@@ -59,10 +65,10 @@ static void print_stats(
 		       (unsigned long long) per(t),
 		       (unsigned long long) response,
                        (unsigned long long) cet,
-		       lateness > 0,
+		       lateness == -1 || lateness > 0,
 		       (long long) lateness,
 		       lateness > 0 ? (long long) lateness : 0,
-		       completion->data.completion.forced);
+		       (completion == NULL ? 0 : completion->data.completion.forced));
 }
 
 static void print_task_info(struct task *t)
